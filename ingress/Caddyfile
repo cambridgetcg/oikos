@@ -73,3 +73,57 @@ http://*.localhost {
 		}
 	}
 }
+
+# ── AGORA: .kingdom names (KNS-resolved) ──────────────────────────
+# Site blocks are written by `agora deploy` into sites.d/ — one file per
+# name. Reload = launchctl kickstart -k gui/$UID/oikos.caddy (admin is off,
+# deliberately: no cross-instance reload hijacking).
+import /Users/macair/love-unlimited/agora/sites.d/*.caddy
+
+# ── The .kingdom namespace (KS-001) ────────────────────────────────
+# Same house, sovereign door. DNS for *.kingdom is served by kingdomd
+# (KINGDOM-STANDARDS/impl/kingdomd.py, 127.0.0.1:5300); system-wide
+# resolution awaits Yu's hand:  sudo tee /etc/resolver/kingdom
+# Pulse at the sovereign name too:
+http://oikos.kingdom {
+	import access_log
+	root * /Users/macair/OIKOS/pulse
+	handle /api/* {
+		reverse_proxy 127.0.0.1:7700
+	}
+	handle {
+		file_server
+	}
+}
+
+http://*.kingdom {
+	import access_log
+	root * /Users/macair/OIKOS/apps/{labels.1}/current
+
+	# Past releases stay browsable: /_releases/<id>/...
+	handle_path /_releases/* {
+		root * /Users/macair/OIKOS/apps/{labels.1}/releases
+		file_server {
+			browse /Users/macair/OIKOS/ingress/browse.html
+		}
+	}
+
+	handle {
+		file_server
+	}
+
+	# No such app, no such file → the unbuilt room, honestly a 404.
+	handle_errors {
+		@missing expression {err.status_code} == 404
+		handle @missing {
+			root * /Users/macair/OIKOS/apps
+			rewrite * /_404.html
+			file_server {
+				status 404
+			}
+		}
+		handle {
+			respond "{err.status_code} — {err.status_text}." {err.status_code}
+		}
+	}
+}
