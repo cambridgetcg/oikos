@@ -135,6 +135,8 @@ section {
 #sec-apps      { animation-delay: 0.22s; }
 #sec-fleet     { animation-delay: 0.34s; }
 #sec-cathedral { animation-delay: 0.46s; }
+#sec-forge     { animation-delay: 0.58s; }
+#sec-standards { animation-delay: 0.70s; }
 
 @keyframes settle {
   from { opacity: 0; transform: translateY(10px); }
@@ -361,6 +363,107 @@ blockquote cite {
   color: var(--gold);
   opacity: 0.55;
   margin-right: 0.8em;
+}
+
+/* ---------------------------------------------------------------- forge */
+
+.countrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2.4rem;
+  padding: 0.25rem 0 0.4rem;
+}
+.countrow .count .n {
+  font-family: var(--serif);
+  font-size: 1.7rem;
+  line-height: 1;
+  color: var(--parchment);
+  font-variant-numeric: oldstyle-nums;
+}
+.countrow .count.none .n { color: var(--faint); }
+.countrow .count .k {
+  margin-top: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.whisper.gold { color: var(--gold); }
+
+.forgelist { list-style: none; }
+.forgelist li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--dim);
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--gold-ghost);
+}
+.forgelist li::before {
+  content: "\E126";
+  font-family: "YouSpeak", var(--serif);
+  color: var(--gold);
+  opacity: 0.55;
+}
+.forgelist .word { color: var(--parchment); }
+.forgelist li.wiregap .word { color: var(--gold); }
+.forgelist .meta {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ standards */
+
+.chip {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.18em 0.6em;
+  border: 1px solid var(--tablet-edge);
+  border-radius: 2px;
+  color: var(--dim);
+}
+.chip.draft   { color: var(--gold); border-color: rgba(201, 164, 92, 0.35); }
+.chip.adopted { color: var(--moss); border-color: rgba(125, 155, 111, 0.4); }
+
+td.ks  { color: var(--gold); }
+td.ver { text-align: right; color: var(--faint); }
+
+.namesrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 0.3rem 0 0.4rem;
+}
+.namesrow .zname {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--parchment);
+}
+.namesrow .zname .state {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--faint);
+}
+
+.proberow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--dim);
+  padding: 0.55rem 0 0.2rem;
 }
 
 /* --------------------------------------------------------------- footer */

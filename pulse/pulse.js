@@ -195,13 +195,154 @@
     }
   }
 
+  // --------------------------------------------------------------- forge
+
+  var FORGE_ORDER = [
+    ["canonized", "canonized"],
+    ["queued", "queued"],
+    ["in-forge", "in-forge"],
+    ["refining", "refining"],
+    ["awaiting-yu-invocation", "awaiting yu"],
+    ["archived", "archived"]
+  ];
+
+  function smallWord(n) {
+    var words = ["no", "one", "two", "three", "four", "five", "six",
+                 "seven", "eight", "nine", "ten", "eleven", "twelve"];
+    return (isNum(n) && n >= 0 && n < words.length) ? words[n] : String(n);
+  }
+
+  function renderForge(data) {
+    var row = $("forge-counts");
+    row.textContent = "";
+    var counts = data.counts || {};
+    FORGE_ORDER.forEach(function (pair) {
+      var n = counts[pair[0]];
+      if (!isNum(n)) n = 0;
+      var box = el("div", "count" + (n === 0 ? " none" : ""));
+      box.appendChild(el("div", "n", String(n)));
+      box.appendChild(el("div", "k", pair[1]));
+      row.appendChild(box);
+    });
+
+    var note = $("wire-note");
+    var gap = data.wire_gap || {};
+    if (isNum(gap.queued) && gap.queued > 0) {
+      note.hidden = false;
+      note.textContent = "the Wire has asked the cathedral for " +
+        smallWord(gap.queued) + " word" + (gap.queued === 1 ? "" : "s") +
+        (gap.words && gap.words.length ? " — " + gap.words.join(", ") : "");
+    } else {
+      note.hidden = true;
+    }
+
+    var next = $("forge-next");
+    next.textContent = "";
+    var queue = data.next || [];
+    if (!queue.length) {
+      next.appendChild(el("li", null, "the queue is empty — nothing waits"));
+    } else {
+      queue.forEach(function (t) {
+        var li = el("li", t.wire_gap ? "wiregap" : null);
+        li.appendChild(el("span", "word", t.word));
+        li.appendChild(el("span", "meta",
+          "phase " + (t.phase || "?") + " · " +
+          t.witnesses + " witness" + (t.witnesses === 1 ? "" : "es") +
+          (t.estimated_score != null ? " · est " + t.estimated_score : "")));
+        next.appendChild(li);
+      });
+    }
+
+    var canon = $("forge-canonized");
+    canon.textContent = "";
+    var newest = data.newest_canonized || [];
+    if (!newest.length) {
+      canon.appendChild(el("li", null, "nothing canonized yet"));
+    } else {
+      newest.forEach(function (t) {
+        var li = el("li");
+        li.appendChild(el("span", "word", t.word));
+        li.appendChild(el("span", "meta",
+          (t.actual_score != null ? "scored " + t.actual_score : "") +
+          (t.actual_score != null && t.date ? " · " : "") +
+          (t.date || "")));
+        canon.appendChild(li);
+      });
+    }
+  }
+
+  // ----------------------------------------------------------- standards
+
+  function renderStandards(data) {
+    var specs = data.specs || [];
+    var table = $("ks-table");
+    table.textContent = "";
+    specs.forEach(function (s) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "ks", s.ks || ""));
+      tr.appendChild(el("td", "label", s.title || ""));
+      var tdChip = el("td");
+      tdChip.appendChild(el("span", "chip " + (s.status || ""), s.status || "?"));
+      tr.appendChild(tdChip);
+      tr.appendChild(el("td", "ver", s.version ? "v" + s.version : ""));
+      table.appendChild(tr);
+    });
+
+    var adopted = specs.filter(function (s) { return s.status === "adopted"; }).length;
+    $("standards-word").textContent = !specs.length
+      ? "the shelf is empty — no specs found"
+      : adopted === 0
+        ? smallWord(specs.length) + " specs on the shelf, every one a draft — " +
+          "specs await Yu's adoption"
+        : smallWord(specs.length) + " specs on the shelf — " + adopted +
+          " adopted, " + (specs.length - adopted) + " await Yu's adoption";
+
+    var zone = data.zone || {};
+    var names = zone.names || [];
+    var row = $("zone-names");
+    row.textContent = "";
+    names.forEach(function (n) {
+      var z = el("span", "zname");
+      z.appendChild(el("span", "dot " + (n.bound ? "up" : "idle")));
+      z.appendChild(el("span", null, n.name + ".kingdom"));
+      z.appendChild(el("span", "state", n.bound ? "bound" : "pending"));
+      row.appendChild(z);
+    });
+    if (!names.length) {
+      row.appendChild(el("span", "zname", "the zone file is unreadable"));
+    }
+
+    var res = data.resolver || {};
+    var probe = $("resolver-row");
+    probe.textContent = "";
+    probe.appendChild(el("span", "dot " + (res.up ? "up" : "down")));
+    probe.appendChild(el("span", null, res.up
+      ? "kingdomd answers on :" + ((res.addr || "").split(":")[1] || "5300") +
+        " — " + (res.query || "oikos.kingdom") + " resolves"
+      : "the resolver is quiet on :" + ((res.addr || "").split(":")[1] || "5300") +
+        " — " + (res.query || "oikos.kingdom") + " went unanswered"));
+
+    var ledger = data.ledger || {};
+    var sigs = ledger.entries;
+    $("zone-word").textContent =
+      smallWord(names.length) + " name" + (names.length === 1 ? "" : "s") +
+      ", " + (isNum(zone.bound) ? zone.bound : "?") + " bound · " +
+      (isNum(sigs)
+        ? (sigs === 0
+            ? "the signature ledger is honestly empty"
+            : sigs + " entr" + (sigs === 1 ? "y" : "ies") + " in the signature ledger")
+        : "the signature ledger is unreadable");
+  }
+
   // ---------------------------------------------------------------- tick
 
   var renderers = {
     "/api/services": renderServices,
     "/api/apps": renderApps,
     "/api/fleet": renderFleet,
-    "/api/cathedral": renderCathedral
+    "/api/cathedral": renderCathedral,
+    "/api/forge": renderForge,
+    "/api/standards": renderStandards
   };
 
   function tick() {

@@ -10,6 +10,8 @@ Endpoints:
     /api/apps        deployed apps under /Users/macair/OIKOS/apps
     /api/fleet       read-only glance at the citizen fleet (~/love-unlimited)
     /api/cathedral   read-only counts from the YOUSPEAK cathedral
+    /api/forge       the forge ledger (~/YOUSPEAK/forge_targets.json), ranked
+    /api/standards   KS specs, the .kingdom zone, the resolver, the ledger
 
 Also serves the static dashboard files from this directory, so the Pulse
 works standalone while Caddy is being raised.
@@ -34,6 +36,12 @@ APPS_DIR = os.path.join(OIKOS, "apps")
 LOVE = os.path.expanduser("~/love-unlimited")
 FORGE = "/Users/macair/_forge"
 YOUSPEAK = os.path.expanduser("~/YOUSPEAK")
+FORGE_LEDGER = os.path.join(YOUSPEAK, "forge_targets.json")
+KINGDOM = "/Users/macair/KINGDOM-STANDARDS"
+SPECS_DIR = os.path.join(KINGDOM, "specs")
+ZONE_FILE = os.path.join(KINGDOM, "zone", "kingdom.zone.json")
+SIG_FILE = os.path.join(KINGDOM, "zone", "signatures.json")
+RESOLVER_ADDR = ("127.0.0.1", 5300)
 
 PROBE_TIMEOUT = 0.25   # seconds — probes must never hang the API
 CACHE_TTL = 5.0
@@ -332,11 +340,218 @@ def api_cathedral():
             "latest_experiments": latest}
 
 
+# Statuses the forge ledger knows (HOME-EXPANSION §VII.C; forge_priority.py).
+FORGE_STATUSES = ("canonized", "queued", "in-forge", "refining",
+                  "awaiting-yu-invocation", "archived")
+
+
+def _witnesses(raw):
+    """Witness list, tolerated either as a list or a comma string."""
+    w = raw.get("convergence_witnesses") or []
+    if isinstance(w, str):
+        w = [x.strip() for x in w.split(",") if x.strip()]
+    return [str(x) for x in w]
+
+
+def _num(raw, key):
+    v = raw.get(key)
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _phase_key(phase_raw):
+    """Phase ascending, the way forge_priority.rank_key buckets it:
+    numeric phases first, named phases (ks-002-wire, hodopoiia-α) after,
+    phaseless last."""
+    p = str(phase_raw).strip() if phase_raw is not None else ""
+    if not p:
+        return (2, 0.0, "")
+    try:
+        return (0, float(p), "")
+    except ValueError:
+        return (1, 0.0, p.lower())
+
+
+def _is_wire_gap(raw):
+    """Targets filed by KS-002 THE WIRE Appendix A — the Wire's word-gaps."""
+    blob = (str(raw.get("phase") or "") + " " + str(raw.get("notes") or "")).lower()
+    return "ks-002" in blob
+
+
+def api_forge():
+    try:
+        with open(FORGE_LEDGER, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {"ok": True, "generated": now_iso(), "total": None,
+                "counts": {}, "next": [], "newest_canonized": [],
+                "wire_gap": {"queued": 0, "words": []},
+                "note": "the forge ledger is unreadable — " + FORGE_LEDGER}
+
+    entries = data.get("entries") if isinstance(data, dict) else data
+    if not isinstance(entries, list):
+        entries = []
+    entries = [e for e in entries if isinstance(e, dict)]
+
+    counts = {s: 0 for s in FORGE_STATUSES}
+    for e in entries:
+        s = str(e.get("status", "queued")).strip().lower()
+        if s == "in-progress":  # §VII.C spelling, as forge_priority tolerates
+            s = "in-forge"
+        if s in counts:
+            counts[s] += 1
+        else:
+            counts[s] = counts.get(s, 0) + 1
+
+    # next to forge — queued, ranked as forge_priority does:
+    # phase asc, then witness-density desc (then estimate desc, word asc).
+    queued = [e for e in entries
+              if str(e.get("status", "")).strip().lower() == "queued"]
+    queued.sort(key=lambda e: (
+        _phase_key(e.get("phase")),
+        -len(_witnesses(e)),
+        -(_num(e, "estimated_score") if _num(e, "estimated_score") is not None
+          else -1.0),
+        str(e.get("word", ""))))
+    nxt = [{"word": str(e.get("word", "(unnamed)")),
+            "phase": str(e.get("phase")) if e.get("phase") is not None else None,
+            "witnesses": len(_witnesses(e)),
+            "estimated_score": _num(e, "estimated_score"),
+            "wire_gap": _is_wire_gap(e)} for e in queued[:5]]
+
+    # newest canonized — by a date derivable from notes, else by the
+    # experiment file's running number (they climb as the cascade does).
+    def recency(e):
+        m = re.search(r"\d{4}-\d{2}-\d{2}", str(e.get("notes") or ""))
+        n = re.search(r"/(\d+)-[^/]*\.md$", str(e.get("experiment") or ""))
+        return (m.group(0) if m else "", int(n.group(1)) if n else -1)
+
+    canonized = [e for e in entries
+                 if str(e.get("status", "")).strip().lower() == "canonized"]
+    canonized.sort(key=recency, reverse=True)
+    newest = []
+    for e in canonized[:5]:
+        date, _ = recency(e)
+        newest.append({"word": str(e.get("word", "(unnamed)")),
+                       "date": date or None,
+                       "actual_score": _num(e, "actual_score"),
+                       "canon_entry": e.get("canon_entry")})
+
+    gap = [e for e in entries if _is_wire_gap(e)]
+    gap_queued = [e for e in gap
+                  if str(e.get("status", "")).strip().lower() == "queued"]
+
+    return {"ok": True, "generated": now_iso(),
+            "total": len(entries), "counts": counts,
+            "next": nxt, "newest_canonized": newest,
+            "wire_gap": {"queued": len(gap_queued),
+                         "words": [str(e.get("word", "")) for e in gap_queued]},
+            "source": FORGE_LEDGER}
+
+
+def _frontmatter(path):
+    """ks/title/status/version from a spec's YAML frontmatter; {} if none."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(2048)
+    except OSError:
+        return {}
+    m = re.match(r"---\s*\n(.*?)\n---", head, re.S)
+    if not m:
+        return {}
+    fm = {}
+    for line in m.group(1).splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        fm[k.strip()] = v.strip().strip("\"'")
+    return fm
+
+
+def _probe_kingdomd(timeout=0.3):
+    """One minimal DNS question — oikos.kingdom A IN — at the sovereign
+    resolver on UDP :5300. True if any bytes come back."""
+    query = (b"\x4b\x53"                              # id: "KS"
+             b"\x01\x00"                              # flags: RD
+             b"\x00\x01\x00\x00\x00\x00\x00\x00"      # one question
+             b"\x05oikos\x07kingdom\x00"              # oikos.kingdom
+             b"\x00\x01\x00\x01")                     # type A, class IN
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(timeout)
+        s.sendto(query, RESOLVER_ADDR)
+        reply, _ = s.recvfrom(512)
+        return len(reply) > 0
+    except OSError:
+        return False
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except OSError:
+                pass
+
+
+def api_standards():
+    # the shelf — KS-*.md specs with their frontmatter
+    specs = []
+    try:
+        names = sorted(n for n in os.listdir(SPECS_DIR)
+                       if n.startswith("KS-") and n.endswith(".md"))
+    except OSError:
+        names = []
+    for name in names:
+        fm = _frontmatter(os.path.join(SPECS_DIR, name))
+        specs.append({"ks": fm.get("ks") or name.rsplit("-", 1)[0],
+                      "title": fm.get("title") or name,
+                      "status": fm.get("status") or "unknown",
+                      "version": fm.get("version"),
+                      "file": name})
+
+    # the zone — names and whether a real did:key is bound yet
+    zone_names = []
+    zone_updated = None
+    try:
+        with open(ZONE_FILE, encoding="utf-8") as f:
+            zone = json.load(f)
+        zone_updated = zone.get("updated")
+        for name, rec in (zone.get("names") or {}).items():
+            did = str((rec or {}).get("did", ""))
+            zone_names.append({"name": name,
+                               "bound": did.startswith("did:key:"),
+                               "did": did})
+    except (OSError, ValueError):
+        pass
+    bound = sum(1 for n in zone_names if n["bound"])
+
+    # the ledger — KS-000 §6 signature entries
+    ledger_entries = None
+    try:
+        with open(SIG_FILE, encoding="utf-8") as f:
+            sigs = json.load(f).get("signatures")
+        ledger_entries = len(sigs) if isinstance(sigs, list) else None
+    except (OSError, ValueError):
+        pass
+
+    resolver_up = _probe_kingdomd()
+
+    return {"ok": True, "generated": now_iso(),
+            "specs": specs,
+            "zone": {"names": zone_names, "bound": bound,
+                     "total": len(zone_names), "updated": zone_updated},
+            "resolver": {"addr": "%s:%d" % RESOLVER_ADDR, "up": resolver_up,
+                         "query": "oikos.kingdom A"},
+            "ledger": {"entries": ledger_entries
+                       if ledger_entries is not None else "unknown"}}
+
+
 ENDPOINTS = {
     "/api/services": api_services,
     "/api/apps": api_apps,
     "/api/fleet": api_fleet,
     "/api/cathedral": api_cathedral,
+    "/api/forge": api_forge,
+    "/api/standards": api_standards,
 }
 
 _cache = {}
@@ -399,7 +614,8 @@ class PulseHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/"):
             self._json(404, {"ok": False,
                              "error": "no such endpoint; the pulse knows "
-                                      "/api/services /api/apps /api/fleet /api/cathedral"})
+                                      "/api/services /api/apps /api/fleet "
+                                      "/api/cathedral /api/forge /api/standards"})
             return
         self._static(path)
 
