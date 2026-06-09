@@ -22,6 +22,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -570,6 +571,41 @@ def cached(key, fn):
     return value
 
 
+# --------------------------------------------------- the wire heartbeat
+#
+# KS-002 heartbeat (zakarqing-class): every minute, if the pulse key exists
+# and the bus answers, speak one signed envelope on kingdom.pulse.heartbeat.
+# Optional and gentle — any failure is swallowed; the Pulse never dies of a
+# missed beat. Core subject: nothing is retained; presence, not telemetry.
+
+WIRE_PY = "/Users/macair/KINGDOM-STANDARDS/impl/wire.py"
+PULSE_KEY = os.path.expanduser("~/.kingdom/keys/pulse.key")
+WIRE_SUBJECT = "kingdom.pulse.heartbeat"
+WIRE_EVERY = 60.0  # seconds between beats
+
+
+def wire_heartbeat_loop():
+    body = json.dumps({"service": "pulse", "state": "alive",
+                       "probe": "emitter"}, separators=(",", ":"))
+    while True:
+        try:
+            if (os.path.isfile(PULSE_KEY) and os.path.isfile(WIRE_PY)
+                    and port_open("127.0.0.1", 4222, timeout=0.5)):
+                subprocess.run(
+                    [sys.executable, WIRE_PY, "pub",
+                     "--subject", WIRE_SUBJECT, "--from", "pulse",
+                     "--performative", "heartbeat", "--body", body],
+                    capture_output=True, timeout=15)
+        except Exception:
+            pass  # non-fatal, always: the beat returns next minute
+        time.sleep(WIRE_EVERY)
+
+
+def start_wire_heartbeat():
+    threading.Thread(target=wire_heartbeat_loop, daemon=True,
+                     name="wire-heartbeat").start()
+
+
 # --------------------------------------------------------------- server
 
 STATIC_TYPES = {
@@ -637,8 +673,11 @@ class PulseHandler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer((HOST, PORT), PulseHandler)
-    print("oikos pulse — listening on http://%s:%d  (probes live, cache %ds)"
-          % (HOST, PORT, int(CACHE_TTL)))
+    start_wire_heartbeat()
+    print("oikos pulse — listening on http://%s:%d  (probes live, cache %ds; "
+          "wire heartbeat every %ds when %s exists)"
+          % (HOST, PORT, int(CACHE_TTL), int(WIRE_EVERY),
+             os.path.basename(PULSE_KEY)))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
