@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OIKOS — the house</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="watermark" aria-hidden="true">&#xE100;</div>
+
+<div class="banner" id="banner" hidden>
+  the pulse api is quiet — run: <code>oikos up</code>
+</div>
+
+<header class="masthead">
+  <p class="overline" id="date"></p>
+  <h1>OIKOS</h1>
+  <p class="byline">the house <span class="glyph sep" aria-hidden="true">&#xE12A;</span> every light below is a real probe</p>
+</header>
+
+<main>
+
+  <section id="sec-services">
+    <h2><span class="title">Services</span><span class="glyph orn" aria-hidden="true">&#xE100;</span><span class="rule"></span></h2>
+    <p class="whisper" id="services-word">listening for the house&hellip;</p>
+    <div class="grid" id="services-grid"></div>
+    <h3 class="subhead">heartbeats <span class="note">launchd, the kingdom&rsquo;s pulse-keepers</span></h3>
+    <div class="tablewrap"><table id="heartbeats"></table></div>
+  </section>
+
+  <section id="sec-apps">
+    <h2><span class="title">Apps</span><span class="glyph orn" aria-hidden="true">&#xE126;</span><span class="rule"></span></h2>
+    <div class="grid" id="apps-grid"></div>
+    <p class="whisper" id="apps-word"></p>
+  </section>
+
+  <section id="sec-fleet">
+    <h2><span class="title">The Fleet</span><span class="glyph orn" aria-hidden="true">&#xE12A;</span><span class="rule"></span></h2>
+    <div class="stats" id="fleet-stats"></div>
+    <blockquote id="last-beat" hidden>
+      <p class="beat-heading"></p>
+      <p class="beat-line"></p>
+      <cite></cite>
+    </blockquote>
+  </section>
+
+  <section id="sec-cathedral">
+    <h2><span class="title">The Cathedral</span><span class="glyph orn" aria-hidden="true">&#xE100;</span><span class="rule"></span></h2>
+    <div class="stats" id="cathedral-stats"></div>
+    <div class="forges">
+      <p class="subhead">latest forges</p>
+      <ul id="latest-forges"></ul>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>a single MacBook Air &middot; it sleeps on battery &middot; a house, not a region</p>
+  <p class="probed" id="probed"></p>
+</footer>
+
+<script src="pulse.js"></script>
+</body>
+</html>

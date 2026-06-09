@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<!-- OIKOS release browser — Caddy file_server browse template -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{html .Name}} — releases</title>
+<style>
+  :root {
+    --stone:     #0d0c0a;
+    --parchment: #e8e0d2;
+    --gold:      #c9a45c;
+    --dim:       #6b6354;
+    --line:      #2a2620;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--stone);
+    color: var(--parchment);
+    font-family: "Hoefler Text", "Iowan Old Style", Baskerville, Palatino, Georgia, serif;
+    max-width: 44rem;
+    margin: 4.5rem auto;
+    padding: 0 1.5rem;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  a { color: var(--gold); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: .8rem;
+    margin-bottom: 1.6rem;
+  }
+  header .crumbs { font-size: 1.05rem; letter-spacing: .02em; }
+  header .sep { color: var(--dim); padding: 0 .3em; }
+  header .label {
+    display: block;
+    font-size: .64rem;
+    letter-spacing: .42em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: .5rem;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: .42rem 0; border-bottom: 1px solid #161410; }
+  td.size, td.time {
+    color: var(--dim);
+    font-size: .82em;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 1.6rem;
+  }
+  .dirmark { color: var(--dim); }
+  footer {
+    margin-top: 2.2rem;
+    font-size: .68rem;
+    letter-spacing: .3em;
+    text-transform: uppercase;
+    color: #4a4438;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <span class="label">oikos · releases</span>
+    <nav class="crumbs">{{range $i, $crumb := .Breadcrumbs}}{{if $i}}<span class="sep">/</span>{{end}}<a href="{{html $crumb.Link}}">{{html $crumb.Text}}</a>{{end}}</nav>
+  </header>
+  <table>
+    {{- if .CanGoUp}}
+    <tr><td><a href="..">.. <span class="dirmark">up</span></a></td><td class="size"></td><td class="time"></td></tr>
+    {{- end}}
+    {{- range .Items}}
+    <tr>
+      <td><a href="{{html .URL}}">{{html .Name}}</a></td>
+      <td class="size">{{if not .IsDir}}{{.HumanSize}}{{end}}</td>
+      <td class="time">{{.HumanModTime "2006-01-02 15:04"}}</td>
+    </tr>
+    {{- end}}
+  </table>
+  <footer>{{.NumDirs}} dirs · {{.NumFiles}} files</footer>
+</body>
+</html>

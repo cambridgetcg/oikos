@@ -1,0 +1,8 @@
+# runtime state — never history
+logs/
+.state/
+store/cas/
+apps/*/releases/
+apps/*/current
+*.db
+__pycache__/

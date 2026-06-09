@@ -1,0 +1,482 @@
+#!/usr/bin/env python3
+# oikos — the Kingdom's sovereign platform layer.
+# Single file, python3 stdlib only.
+# Taste law: restrained, aligned, honest. Probe real state; speak in clear sentences.
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.request import urlopen
+
+ROOT = Path(os.environ["OIKOS_ROOT"]).resolve() if os.environ.get("OIKOS_ROOT") \
+    else Path(__file__).resolve().parent.parent
+APPS, STORE, LOGS, LAUNCHD = ROOT / "apps", ROOT / "store", ROOT / "logs", ROOT / "launchd"
+AGENTS = Path.home() / "Library" / "LaunchAgents"
+LABELS = ("oikos.caddy", "oikos.pulse")
+JUNK = {".git", "node_modules", ".DS_Store", "__pycache__"}
+
+# ── voice ────────────────────────────────────────────────────────────────────
+TTY = sys.stdout.isatty()
+def tint(code, s): return f"\033[{code}m{s}\033[0m" if TTY else str(s)
+gold = lambda s: tint("38;5;179", s)     # #c9a45c
+green = lambda s: tint("38;5;65", s)     # quiet green
+rust = lambda s: tint("38;5;130", s)     # #8a4b32
+dim = lambda s: tint("2", s)
+OK, NO = green("✓"), rust("✗")
+
+def die(msg):
+    print(f"  {NO} {msg}", file=sys.stderr)
+    sys.exit(1)
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def human_size(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024
+
+def human_age(iso):
+    try:
+        then = datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return "—"
+    s = (datetime.now(timezone.utc) - then).total_seconds()
+    if s < 60: return "just now"
+    if s < 3600: return f"{int(s // 60)}m ago"
+    if s < 86400: return f"{int(s // 3600)}h ago"
+    return f"{int(s // 86400)}d ago"
+
+def table(rows, indent=2):
+    """Print aligned columns. Cells may carry ANSI; width is measured bare."""
+    bare = lambda s: re.sub(r"\033\[[0-9;]*m", "", str(s))
+    widths = [max(len(bare(r[i])) for r in rows) for i in range(len(rows[0]))]
+    for r in rows:
+        line = "  ".join(str(c) + " " * (widths[i] - len(bare(c))) for i, c in enumerate(r))
+        print(" " * indent + line.rstrip())
+
+# ── release machinery ────────────────────────────────────────────────────────
+def sanitize_name(raw):
+    name = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]", "-", raw.lower())).strip("-")
+    if not name:
+        die(f"'{raw}' yields no usable app name; pass --name with letters and digits.")
+    return name
+
+def dir_size(d):
+    return sum(p.stat().st_size for p in d.rglob("*") if p.is_file() and not p.is_symlink())
+
+def content_hash(d):
+    h = hashlib.sha256()
+    for p in sorted(d.rglob("*"), key=lambda p: p.relative_to(d).as_posix()):
+        rel = p.relative_to(d).as_posix()
+        if p.is_symlink():
+            h.update(f"L {rel} {os.readlink(p)}\n".encode())
+        elif p.is_file():
+            h.update(f"F {rel}\n".encode())
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 16), b""):
+                    h.update(chunk)
+    return h.hexdigest()
+
+def copy_snapshot(src, dst):
+    shutil.copytree(src, dst, symlinks=True,
+                    ignore=lambda _, names: [n for n in names if n in JUNK])
+
+def point_current(app_dir, rid):
+    """Atomic swap: build a temp symlink, os.replace over `current`."""
+    tmp = app_dir / f".current.{os.getpid()}"
+    if tmp.is_symlink() or tmp.exists():
+        tmp.unlink()
+    os.symlink(os.path.join("releases", rid), tmp)
+    os.replace(tmp, app_dir / "current")
+
+def current_of(app_dir):
+    link = app_dir / "current"
+    return os.path.basename(os.readlink(link)) if link.is_symlink() else None
+
+def load_meta(app_dir, name):
+    p = app_dir / "app.json"
+    if p.exists():
+        return json.loads(p.read_text())
+    return {"name": name, "created": now_iso(), "releases": []}
+
+def save_meta(app_dir, meta):
+    (app_dir / "app.json").write_text(json.dumps(meta, indent=2) + "\n")
+
+def list_release_ids(app_dir):
+    """Release ids in deploy order: app.json history first, stray dirs after."""
+    rel = app_dir / "releases"
+    if not rel.is_dir():
+        return []
+    on_disk = {d.name for d in rel.iterdir() if d.is_dir() and not d.name.startswith(".")}
+    meta = load_meta(app_dir, app_dir.name)
+    ordered = [r["id"] for r in meta.get("releases", []) if r["id"] in on_disk]
+    return ordered + sorted(on_disk - set(ordered))
+
+def cmd_deploy(argv):
+    src, name, build = None, None, None
+    it = iter(argv)
+    for a in it:
+        if a == "--name": name = next(it, None) or die("--name needs a value.")
+        elif a == "--build": build = next(it, None) or die("--build needs a command.")
+        elif src is None: src = a
+        else: die(f"unexpected argument '{a}'.")
+    if not src:
+        die("usage: oikos deploy <dir> [--name <app>] [--build \"<cmd>\"]")
+    src = Path(src).expanduser().resolve()
+    if not src.is_dir():
+        die(f"{src} is not a directory.")
+    name = sanitize_name(name or src.name)
+
+    workdir, scratch = src, None
+    try:
+        if build:
+            scratch = Path(tempfile.mkdtemp(prefix="oikos-build-"))
+            workdir = scratch / "src"
+            shutil.copytree(src, workdir, symlinks=True,
+                            ignore=shutil.ignore_patterns(".git", ".DS_Store"))
+            r = subprocess.run(build, shell=True, cwd=workdir, capture_output=True, text=True)
+            if r.returncode != 0:
+                tail = "\n    ".join((r.stderr or r.stdout).strip().splitlines()[-8:])
+                die(f"build failed (exit {r.returncode}).\n    {dim(tail)}")
+
+        app_dir = APPS / name
+        rel_root = app_dir / "releases"
+        rel_root.mkdir(parents=True, exist_ok=True)
+        stage = rel_root / f".stage-{os.getpid()}"
+        if stage.exists():
+            shutil.rmtree(stage)
+        copy_snapshot(workdir, stage)
+        sha = content_hash(stage)
+        rid = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M") + "-" + sha[:7]
+        dest = rel_root / rid
+        if dest.exists():               # identical content within the same minute
+            shutil.rmtree(stage)
+        else:
+            stage.rename(dest)
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    point_current(app_dir, rid)
+    meta = load_meta(app_dir, name)
+    if rid not in (r["id"] for r in meta["releases"]):
+        meta["releases"].append({"id": rid, "time": now_iso(), "source": str(src)})
+    meta["current"] = rid
+    save_meta(app_dir, meta)
+
+    print(f"  {OK} {gold(name)} deployed")
+    print(f"    release  {rid}")
+    print(f"    url      http://{name}.localhost")
+
+def cmd_rollback(argv):
+    if not argv:
+        die("usage: oikos rollback <app> [release-id]")
+    name, want = argv[0], (argv[1] if len(argv) > 1 else None)
+    app_dir = APPS / name
+    ids = list_release_ids(app_dir)
+    if not ids:
+        die(f"no releases found for '{name}'. try: oikos ls")
+    cur = current_of(app_dir)
+    if want:
+        hits = [i for i in ids if i == want or i.startswith(want) or i.endswith(want)]
+        if not hits: die(f"no release matching '{want}' for {name}.")
+        if len(hits) > 1: die(f"'{want}' is ambiguous: {', '.join(hits)}")
+        rid = hits[0]
+    else:
+        if cur not in ids or ids.index(cur) == 0:
+            die(f"{name} has nothing earlier than {cur or '(none)'} to roll back to.")
+        rid = ids[ids.index(cur) - 1]
+    if rid == cur:
+        die(f"{name} is already on {rid}.")
+    point_current(app_dir, rid)
+    meta = load_meta(app_dir, name)
+    meta["current"] = rid
+    save_meta(app_dir, meta)
+    print(f"  {OK} {gold(name)} rolled back")
+    print(f"    {dim(cur or '(none)')} → {rid}")
+    print(f"    url      http://{name}.localhost")
+
+def cmd_releases(argv):
+    if not argv:
+        die("usage: oikos releases <app>")
+    name = argv[0]
+    app_dir = APPS / name
+    ids = list_release_ids(app_dir)
+    if not ids:
+        die(f"no releases found for '{name}'. try: oikos ls")
+    cur = current_of(app_dir)
+    meta = load_meta(app_dir, name)
+    times = {r["id"]: r.get("time") for r in meta.get("releases", [])}
+    print(f"\n  {gold(name)} · {len(ids)} release{'s' if len(ids) != 1 else ''}\n")
+    rows = []
+    for rid in reversed(ids):
+        mark = gold("●") if rid == cur else " "
+        size = human_size(dir_size(app_dir / "releases" / rid))
+        note = gold("current") if rid == cur else ""
+        rows.append((mark, rid, dim(human_age(times.get(rid))), size, note))
+    table(rows)
+    print(f"\n  {dim(f'browse: http://{name}.localhost/_releases/<id>/')}\n")
+
+def cmd_ls(_argv):
+    apps = sorted(d for d in APPS.iterdir() if d.is_dir()) if APPS.is_dir() else []
+    apps = [d for d in apps if not d.name.startswith((".", "_"))]
+    if not apps:
+        print(f"  {dim('no apps deployed yet. try: oikos deploy <dir>')}")
+        return
+    print()
+    rows = [(dim("app"), dim("release"), dim("url"))]
+    for d in apps:
+        cur = current_of(d) or rust("no current release")
+        rows.append((gold(d.name), cur, f"http://{d.name}.localhost"))
+    table(rows)
+    print()
+
+# ── probes (honesty law: look, never assume) ────────────────────────────────
+def tcp_up(port, host="127.0.0.1"):
+    try:
+        with socket.create_connection((host, port), timeout=0.8):
+            return True
+    except OSError:
+        return False
+
+def http_json(url, timeout=1.5):
+    try:
+        with urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception:
+        return None
+
+def launchd_oikos():
+    """label → pid string for loaded oikos.* agents."""
+    try:
+        out = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
+    except OSError:
+        return {}
+    found = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[2].startswith("oikos."):
+            found[parts[2]] = parts[0]
+    return found
+
+def cmd_status(_argv):
+    loaded = launchd_oikos()
+    rows = []
+
+    def row(name, up, detail, hint):
+        rows.append((OK if up else NO, name, dim(detail) if up else dim(hint)))
+
+    caddy = tcp_up(80)
+    row("caddy :80", caddy, "ingress answering", "down — try: oikos up")
+    pulse = tcp_up(7700)
+    row("pulse :7700", pulse, "dashboard api answering", "down — try: oikos up")
+    for label in LABELS:
+        pid = loaded.get(label)
+        running = pid is not None and pid != "-"
+        if label in loaded:
+            row(f"launchd {label}", running, f"loaded, pid {pid}",
+                "loaded but not running — see: oikos logs " + label)
+        else:
+            row(f"launchd {label}", False, "", "not loaded — try: oikos up")
+    nats = tcp_up(4222)
+    varz = http_json("http://127.0.0.1:8222/varz") if nats else None
+    detail = "accepting connections"
+    if varz:
+        detail = f"v{varz.get('version', '?')} · {varz.get('connections', 0)} connections"
+    row("nats :4222", nats, detail, "down — external service, not managed by oikos")
+    models = http_json("http://127.0.0.1:8800/v1/models")
+    mlx = models is not None or tcp_up(8800)
+    count = len(models.get("data", [])) if isinstance(models, dict) else None
+    row("mlx :8800", mlx,
+        f"{count} model{'s' if count != 1 else ''} served" if count is not None else "port open",
+        "down — external service, not managed by oikos")
+
+    print(f"\n  {gold('oikos')} · {dim(str(ROOT))}\n")
+    table(rows)
+    print()
+    return 0 if (caddy and pulse) else 1
+
+# ── infrastructure ───────────────────────────────────────────────────────────
+def cmd_up(_argv):
+    caddy_bin = shutil.which("caddy")
+    if not caddy_bin:
+        die("caddy is not installed. run exactly:\n    brew install caddy")
+    LOGS.mkdir(parents=True, exist_ok=True)
+    AGENTS.mkdir(parents=True, exist_ok=True)
+    fills = {"{{OIKOS}}": str(ROOT), "{{CADDY}}": caddy_bin,
+             "{{PYTHON3}}": shutil.which("python3") or sys.executable,
+             "{{HOME}}": str(Path.home())}
+    uid = os.getuid()
+    loaded = launchd_oikos()
+    print()
+    for label in LABELS:
+        tpl = LAUNCHD / f"{label}.plist"
+        if not tpl.exists():
+            die(f"template missing: {tpl}")
+        text = tpl.read_text()
+        for k, v in fills.items():
+            text = text.replace(k, v)
+        target = AGENTS / f"{label}.plist"
+        target.write_text(text)
+        if label in loaded:
+            print(f"  {OK} {gold(label)}  {dim('already loaded')}")
+            continue
+        r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(target)],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            subprocess.run(["launchctl", "enable", f"gui/{uid}/{label}"], capture_output=True)
+            print(f"  {OK} {gold(label)}  {dim('bootstrapped')}")
+        elif "already" in (r.stderr or "").lower() or r.returncode == 5:
+            print(f"  {OK} {gold(label)}  {dim('already bootstrapped')}")
+        else:
+            print(f"  {NO} {gold(label)}  {dim((r.stderr or 'bootstrap failed').strip())}")
+    # NATS and MLX are not ours; status below reports them, nothing more.
+    cmd_status([])
+
+# ── content-addressed store ──────────────────────────────────────────────────
+# TODO(sign): when zerone signing lands, sign manifest rows with
+# ~/love-unlimited/tools/identity.py (do not import yet — future hook).
+def store_db():
+    STORE.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(STORE / "manifest.db")
+    conn.execute("CREATE TABLE IF NOT EXISTS manifest "
+                 "(sha TEXT PRIMARY KEY, name TEXT, bytes INTEGER, added_utc TEXT)")
+    return conn
+
+def sha256_file(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def cmd_store(argv):
+    if not argv:
+        die("usage: oikos store put <file> | get <sha> [-o <out>] | ls")
+    sub, rest = argv[0], argv[1:]
+    if sub == "put":
+        if not rest: die("usage: oikos store put <file>")
+        p = Path(rest[0]).expanduser().resolve()
+        if not p.is_file(): die(f"{p} is not a file.")
+        sha = sha256_file(p)
+        dest = STORE / "cas" / sha[:2] / sha
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            tmp = dest.parent / f".{sha}.tmp"
+            shutil.copy2(p, tmp)
+            os.replace(tmp, dest)
+        with store_db() as conn:
+            conn.execute("INSERT OR REPLACE INTO manifest VALUES (?,?,?,?)",
+                         (sha, p.name, p.stat().st_size, now_iso()))
+        print(f"  {OK} stored {gold(p.name)}  {dim(human_size(p.stat().st_size))}")
+        print(f"    {sha}")
+    elif sub == "get":
+        if not rest: die("usage: oikos store get <sha> [-o <out>]")
+        want, out = rest[0], None
+        if "-o" in rest:
+            i = rest.index("-o")
+            out = rest[i + 1] if i + 1 < len(rest) else die("-o needs a path.")
+        with store_db() as conn:
+            hits = conn.execute("SELECT sha, name FROM manifest WHERE sha LIKE ?",
+                                (want + "%",)).fetchall()
+        if not hits: die(f"nothing in the store matches '{want}'.")
+        if len(hits) > 1: die(f"'{want}' is ambiguous ({len(hits)} matches); give more digits.")
+        sha, name = hits[0]
+        src = STORE / "cas" / sha[:2] / sha
+        if not src.exists(): die(f"manifest knows {sha[:12]}… but the blob is missing.")
+        h, out_path = hashlib.sha256(), Path(out or name)
+        with open(src, "rb") as f, open(out_path, "wb") as w:
+            for chunk in iter(lambda: f.read(1 << 16), b""):
+                h.update(chunk)
+                w.write(chunk)
+        if h.hexdigest() != sha:
+            out_path.unlink(missing_ok=True)
+            die(f"integrity check failed for {sha[:12]}…; blob is corrupt, nothing written.")
+        print(f"  {OK} {sha[:12]}… → {gold(str(out_path))}  {dim('hash verified')}")
+    elif sub == "ls":
+        with store_db() as conn:
+            items = conn.execute(
+                "SELECT sha, name, bytes, added_utc FROM manifest ORDER BY added_utc").fetchall()
+        if not items:
+            print(f"  {dim('store is empty. try: oikos store put <file>')}")
+            return
+        print()
+        rows = [(dim("sha"), dim("name"), dim("size"), dim("added"))]
+        for sha, name, size, added in items:
+            rows.append((sha[:12] + "…", gold(name), human_size(size), dim(human_age(added))))
+        table(rows)
+        print()
+    else:
+        die(f"unknown store action '{sub}'. use put, get, or ls.")
+
+def cmd_open(argv):
+    if not argv:
+        die("usage: oikos open <app>")
+    url = f"http://{argv[0]}.localhost"
+    subprocess.run(["/usr/bin/open", url])
+    print(f"  {OK} opening {gold(url)}")
+
+def cmd_logs(argv):
+    labels = [argv[0]] if argv else list(LABELS)
+    for label in labels:
+        if label not in LABELS:
+            die(f"unknown service '{label}'. choose oikos.caddy or oikos.pulse.")
+        path = LOGS / f"{label}.log"
+        print(f"\n  {gold(label)} · {dim(str(path))}")
+        if not path.exists():
+            print(f"  {dim('no log yet — service has not written anything.')}")
+            continue
+        lines = path.read_text(errors="replace").splitlines()[-40:]
+        for ln in lines:
+            print(f"  {ln}")
+    print()
+
+HELP = f"""
+  {gold('oikos')} — sovereign platform layer
+
+  {dim('usage')}  oikos <command> [args]
+
+  deploy <dir> [--name <app>] [--build "<cmd>"]
+            snapshot a directory into a release and serve it
+  rollback <app> [release-id]   return to the previous (or named) release
+  releases <app>                list an app's releases
+  ls                            all apps and their current release
+  status                        probe the real state of the platform
+  up                            install + start the caddy and pulse agents
+  store put <file>              add a file to the content-addressed store
+  store get <sha> [-o <out>]    fetch by hash, verified on read
+  store ls                      list stored objects
+  open <app>                    open http://<app>.localhost
+  logs [oikos.caddy|oikos.pulse]  tail the last 40 log lines
+"""
+
+def main():
+    cmds = {"deploy": cmd_deploy, "rollback": cmd_rollback, "releases": cmd_releases,
+            "ls": cmd_ls, "status": cmd_status, "up": cmd_up, "store": cmd_store,
+            "open": cmd_open, "logs": cmd_logs}
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("help", "-h", "--help"):
+        print(HELP)
+        return 0
+    fn = cmds.get(argv[0])
+    if not fn:
+        die(f"unknown command '{argv[0]}'. try: oikos help")
+    return fn(argv[1:]) or 0
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)

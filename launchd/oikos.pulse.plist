@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>oikos.pulse</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{PYTHON3}}</string>
+		<string>{{OIKOS}}/pulse/pulse_api.py</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{OIKOS}}</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>{{OIKOS}}/logs/oikos.pulse.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{OIKOS}}/logs/oikos.pulse.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>{{HOME}}</string>
+	</dict>
+</dict>
+</plist>

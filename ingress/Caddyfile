@@ -1,0 +1,75 @@
+# ── OIKOS ingress ──────────────────────────────────────────────────
+# One Caddy, two blocks. New apps need no config here: any
+# <app>.localhost is served from /Users/macair/OIKOS/apps/<app>/current.
+# Validate:  caddy validate --config /Users/macair/OIKOS/ingress/Caddyfile
+# Owned by:  launchd label oikos.caddy (see launchd/)
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+# Shared access log — JSON, one stream for all sites.
+(access_log) {
+	log {
+		output file /Users/macair/OIKOS/logs/caddy-access.log {
+			roll_size 16MiB
+			roll_keep 4
+		}
+		format json
+	}
+}
+
+# ── Pulse: the dashboard ───────────────────────────────────────────
+http://oikos.localhost {
+	import access_log
+	root * /Users/macair/OIKOS/pulse
+
+	# /api/* is proxied to the Pulse API, path kept intact.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:7700
+	}
+
+	handle {
+		file_server
+	}
+
+	handle_errors {
+		respond "{err.status_code} — pulse could not answer ({err.status_text})." {err.status_code}
+	}
+}
+
+# ── Every app, one dynamic block ───────────────────────────────────
+# Host <app>.localhost → {labels.1} = "<app>"  (labels count from the
+# right: labels.0 = "localhost", labels.1 = the app name).
+http://*.localhost {
+	import access_log
+	root * /Users/macair/OIKOS/apps/{labels.1}/current
+
+	# Past releases stay browsable: /_releases/<id>/...
+	handle_path /_releases/* {
+		root * /Users/macair/OIKOS/apps/{labels.1}/releases
+		file_server {
+			browse /Users/macair/OIKOS/ingress/browse.html
+		}
+	}
+
+	handle {
+		file_server
+	}
+
+	# No such app, no such file → the unbuilt room, honestly a 404.
+	handle_errors {
+		@missing expression {err.status_code} == 404
+		handle @missing {
+			root * /Users/macair/OIKOS/apps
+			rewrite * /_404.html
+			file_server {
+				status 404
+			}
+		}
+		handle {
+			respond "{err.status_code} — {err.status_text}." {err.status_code}
+		}
+	}
+}

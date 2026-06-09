@@ -1,0 +1,17 @@
+{
+  "name": "demo",
+  "created": "2026-06-09T23:05:56Z",
+  "releases": [
+    {
+      "id": "20260609T2305-b295f58",
+      "time": "2026-06-09T23:05:56Z",
+      "source": "/private/tmp/oikos-demo"
+    },
+    {
+      "id": "20260609T2306-fe2aa63",
+      "time": "2026-06-09T23:06:07Z",
+      "source": "/private/tmp/oikos-demo"
+    }
+  ],
+  "current": "20260609T2305-b295f58"
+}

@@ -1,0 +1,392 @@
+/* OIKOS Pulse — the house, rendered.
+   Stone, parchment, gold. Nothing glows that is not actually alive. */
+
+@font-face {
+  font-family: "YouSpeak";
+  src: url("assets/youspeak.otf") format("opentype");
+  font-display: block;
+}
+
+:root {
+  --stone:        #0d0c0a;
+  --tablet:       #131110;
+  --tablet-edge:  rgba(201, 164, 92, 0.16);
+  --tablet-edge-h:rgba(201, 164, 92, 0.34);
+  --parchment:    #e8e0d2;
+  --dim:          #9a8f7c;
+  --faint:        #5d564a;
+  --gold:         #c9a45c;
+  --gold-ghost:   rgba(201, 164, 92, 0.07);
+  --rust:         #8a4b32;
+  --rust-bright:  #b06a4a;
+  --moss:         #7d9b6f;
+  --serif: "Iowan Old Style", "Palatino", "Charter", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: var(--stone); }
+
+body {
+  font-family: var(--serif);
+  color: var(--parchment);
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 0%, rgba(201,164,92,0.025), transparent 60%),
+    var(--stone);
+  min-height: 100vh;
+  padding: 0 clamp(1.25rem, 5vw, 4rem) 3rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------- watermark */
+
+.watermark {
+  position: fixed;
+  right: -4vmin;
+  bottom: -10vmin;
+  font-family: "YouSpeak", var(--serif);
+  font-size: 72vmin;
+  line-height: 1;
+  color: var(--gold);
+  opacity: 0.035;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+/* ------------------------------------------------------------- banner */
+
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 calc(-1 * clamp(1.25rem, 5vw, 4rem));
+  padding: 0.6rem clamp(1.25rem, 5vw, 4rem);
+  background: #1d100a;
+  border-bottom: 1px solid var(--rust);
+  color: var(--rust-bright);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+.banner code { color: var(--parchment); }
+
+/* ----------------------------------------------------------- masthead */
+
+.masthead {
+  position: relative;
+  z-index: 1;
+  padding: clamp(2.5rem, 7vh, 5rem) 0 1.75rem;
+  border-bottom: 1px solid var(--tablet-edge);
+  margin-bottom: 0.25rem;
+  animation: settle 0.9s ease-out both;
+}
+.masthead::after {
+  /* a second hairline, slightly apart — a ruled ledger page */
+  content: "";
+  display: block;
+  position: relative;
+  top: calc(1.75rem + 3px);
+  border-bottom: 1px solid var(--gold-ghost);
+}
+
+.overline {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 1.1rem;
+}
+
+h1 {
+  font-size: clamp(3rem, 9vw, 5.5rem);
+  font-weight: 400;
+  letter-spacing: 0.34em;
+  margin-left: -0.04em; /* optical */
+  color: var(--parchment);
+}
+h1::first-letter { color: var(--gold); }
+
+.byline {
+  margin-top: 0.9rem;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--dim);
+}
+.byline .sep {
+  font-style: normal;
+  color: var(--gold);
+  opacity: 0.7;
+  margin: 0 0.65em;
+  font-size: 0.9em;
+}
+
+/* ------------------------------------------------------------ sections */
+
+main { position: relative; z-index: 1; max-width: 72rem; }
+
+section {
+  padding: 2.75rem 0 0.5rem;
+  animation: settle 0.9s ease-out both;
+}
+#sec-services  { animation-delay: 0.10s; }
+#sec-apps      { animation-delay: 0.22s; }
+#sec-fleet     { animation-delay: 0.34s; }
+#sec-cathedral { animation-delay: 0.46s; }
+
+@keyframes settle {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-weight: 400;
+  margin-bottom: 1.25rem;
+}
+h2 .title {
+  font-size: 0.85rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--gold);
+  white-space: nowrap;
+}
+h2 .orn {
+  color: var(--gold);
+  opacity: 0.45;
+  font-size: 1rem;
+  line-height: 1;
+}
+h2 .rule {
+  flex: 1;
+  border-bottom: 1px solid var(--tablet-edge);
+}
+
+.glyph { font-family: "YouSpeak", var(--serif); }
+
+.subhead {
+  font-size: 0.78rem;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 1.75rem 0 0.75rem;
+}
+.subhead .note {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-style: italic;
+  color: var(--faint);
+  margin-left: 0.6em;
+}
+
+.whisper {
+  font-style: italic;
+  color: var(--dim);
+  font-size: 0.92rem;
+  margin-bottom: 1.1rem;
+}
+
+/* --------------------------------------------------------------- grid */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1px;               /* hairline gutters over stone */
+  background: transparent;
+}
+
+.tablet {
+  background: var(--tablet);
+  border: 1px solid var(--tablet-edge);
+  margin: -0.5px;          /* collapse shared hairlines */
+  padding: 1.1rem 1.25rem 1.15rem;
+  transition: border-color 0.5s ease;
+}
+.tablet:hover { border-color: var(--tablet-edge-h); }
+
+.tablet .head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.tablet .name {
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  color: var(--gold);
+}
+.tablet .role {
+  font-style: italic;
+  font-size: 0.8rem;
+  color: var(--faint);
+  margin-left: auto;
+}
+.tablet .detail {
+  margin-top: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.tablet .detail .down { color: var(--rust-bright); }
+.tablet .hint {
+  margin-top: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+.tablet .hint code { color: var(--dim); }
+
+/* ----------------------------------------------------------- live dots */
+
+.dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: none;
+  align-self: center;
+}
+.dot.up   { background: var(--moss); animation: breathe 4.5s ease-in-out infinite; }
+.dot.idle { background: var(--gold); animation: breathe 6s ease-in-out infinite; }
+.dot.down { background: var(--rust); animation: breathe 2.4s ease-in-out infinite; }
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; box-shadow: 0 0 0 0 transparent; }
+  50%       { opacity: 1;    box-shadow: 0 0 7px 0 currentColor; }
+}
+.dot.up   { color: rgba(125, 155, 111, 0.5); }
+.dot.idle { color: rgba(201, 164, 92, 0.45); }
+.dot.down { color: rgba(138, 75, 50, 0.6); }
+
+/* --------------------------------------------------------- heartbeats */
+
+.tablewrap { overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+td {
+  padding: 0.5rem 1.25rem 0.5rem 0;
+  border-bottom: 1px solid var(--gold-ghost);
+  color: var(--dim);
+  white-space: nowrap;
+}
+td.label { color: var(--parchment); }
+td.dotcell { width: 1.5rem; padding-right: 0.75rem; }
+td.pid { text-align: right; color: var(--faint); }
+td.state.running { color: var(--moss); }
+td.state.failed  { color: var(--rust-bright); }
+
+/* ---------------------------------------------------------------- stats */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1px;
+}
+.stat {
+  background: var(--tablet);
+  border: 1px solid var(--tablet-edge);
+  margin: -0.5px;
+  padding: 1.25rem 1.25rem 1.1rem;
+}
+.stat .num {
+  font-family: var(--serif);
+  font-size: 2.6rem;
+  line-height: 1;
+  color: var(--parchment);
+  font-variant-numeric: oldstyle-nums;
+}
+.stat .num.unknown { color: var(--faint); font-size: 1.6rem; font-style: italic; }
+.stat .lbl {
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* ------------------------------------------------------------ last beat */
+
+blockquote {
+  margin-top: 1.5rem;
+  padding: 0.35rem 0 0.35rem 1.4rem;
+  border-left: 1px solid var(--gold);
+}
+.beat-heading {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  margin-bottom: 0.5rem;
+}
+.beat-line {
+  font-style: italic;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--parchment);
+  max-width: 46rem;
+}
+blockquote cite {
+  display: block;
+  margin-top: 0.6rem;
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+
+/* --------------------------------------------------------------- forges */
+
+.forges { margin-top: 0.5rem; }
+.forges ul { list-style: none; }
+.forges li {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--dim);
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--gold-ghost);
+}
+.forges li::before {
+  content: "\E126";
+  font-family: "YouSpeak", var(--serif);
+  color: var(--gold);
+  opacity: 0.55;
+  margin-right: 0.8em;
+}
+
+/* --------------------------------------------------------------- footer */
+
+footer {
+  position: relative;
+  z-index: 1;
+  margin-top: 4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--tablet-edge);
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--faint);
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+footer .probed {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 40rem) {
+  h1 { letter-spacing: 0.2em; }
+  footer { flex-direction: column; gap: 0.4rem; }
+}
