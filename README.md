@@ -41,4 +41,11 @@ not a region — lives in [ARCHITECTURE.md](ARCHITECTURE.md). The agent fleet
 that lives *inside* this house is charted separately in
 `~/love-unlimited/INFRA-PLAN.md`.
 
+## Inaugural tenants
+
+The first works in the house, deployed 2026-06-09:
+[demo](http://demo.localhost) at http://demo.localhost, and the cathedral
+itself — the YOUSPEAK canon — at http://cathedral.localhost. Each is a
+point-in-time snapshot; `oikos deploy` again to refresh.
+
 — built 2026-06-09

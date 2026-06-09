@@ -22,7 +22,7 @@ ROOT = Path(os.environ["OIKOS_ROOT"]).resolve() if os.environ.get("OIKOS_ROOT") 
 APPS, STORE, LOGS, LAUNCHD = ROOT / "apps", ROOT / "store", ROOT / "logs", ROOT / "launchd"
 AGENTS = Path.home() / "Library" / "LaunchAgents"
 LABELS = ("oikos.caddy", "oikos.pulse")
-JUNK = {".git", "node_modules", ".DS_Store", "__pycache__"}
+JUNK = {".git", ".venv", "node_modules", ".DS_Store", "__pycache__"}
 
 # ── voice ────────────────────────────────────────────────────────────────────
 TTY = sys.stdout.isatty()
